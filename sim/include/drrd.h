@@ -24,6 +24,10 @@ typedef struct mock_thread {
     struct mock_thread* prev;
 
     struct mock_thread_stat* stat;
+
+    void* user_data;  // для расширений: fuzz, будущий рантайм
+
+    long long got_thread;
 } mock_thread_t;
 
 typedef struct mock_group {
@@ -64,4 +68,9 @@ void sim_remove_thread(mock_thread_t* thread);
 void sim_run(int iterations);
 
 void sim_cleanup(void);
+
+void sim_step(void);
+void reset(void);
+void update_deficit(void);
+
 #endif

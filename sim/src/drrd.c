@@ -1,6 +1,7 @@
 #include "../include/drrd.h"
 
 #include "../include/stat.h"
+#include "../include/trace.h"
 
 // ============================================================================
 //  Глобальное состояние симулятора
@@ -59,6 +60,7 @@ static void insert_thread_in_group(mock_group_t* g, mock_thread_t* t) {
 // Вышивание потока из кругового списка.
 static void remove_thread_from_group(mock_group_t* g, mock_thread_t* t) {
     assert(g->head != NULL);
+    assert(t != NULL);
 
     // Единственный поток в группе
     if (g->head == t && t->next == t) {
@@ -77,6 +79,72 @@ static void remove_thread_from_group(mock_group_t* g, mock_thread_t* t) {
     // Сдвигаем current, если он указывал на удаляемый поток
     if (g->current == t) g->current = t->next;
 }
+
+// ============================================================================
+//  Проверки инвариантов
+// ============================================================================
+
+// Группа: если пуста — всё в нулях; если непуста — W_base = priority×count,
+// W ≥ 0, круговой список содержит ровно count узлов с правильным приоритетом.
+static void check_group(const mock_group_t* g) {
+    if (g->count == 0) {
+        assert(g->head == NULL);
+        assert(g->current == NULL);
+        assert(g->W == 0);
+        assert(g->W_base == 0);
+        assert(g->deficit == 0);
+        assert(g->calls == 0);
+        assert(g->fant_calls == 0);
+        return;
+    }
+
+    assert(g->count > 0);
+    assert(g->priority > 0);
+    assert(g->head != NULL);
+    assert(g->current != NULL);
+    assert(g->W >= 0);
+    assert(g->W_base >= 0);
+    assert(g->calls >= 0);
+    assert(g->fant_calls >= 0);
+    assert(g->W_base == (long long)g->priority * g->count);
+
+    int n = 0;
+    const mock_thread_t* t = g->head;
+    do {
+        assert(t != NULL);
+        assert(t->priority == g->priority);
+        n++;
+        assert(n <= 1000000 && "circular list broken / too long");
+        t = t->next;
+    } while (t != g->head);
+
+    assert(n == g->count);
+}
+
+// Глобальные инварианты: суммы по группам сходятся с глобальным состоянием.
+static void check_global(void) {
+    long long w_sum = 0;
+    long long wb_sum = 0;
+    long long c_sum = 0;
+
+    for (int i = 0; i < sim.group_count; i++) {
+        const mock_group_t* g = &sim.groups[i];
+        check_group(g);
+        w_sum += g->W;
+        wb_sum += g->W_base;
+        c_sum += g->calls;
+    }
+
+    assert(sim.W == w_sum);
+    assert(sim.W_base == wb_sum);
+    assert(sim.R >= c_sum);
+    assert(sim.W >= 0);
+    assert(sim.W_base >= 0);
+    assert(sim.R >= 0);
+    assert(sim.thread_id >= 0);
+}
+
+static void check_invariants(void) { check_global(); }
 
 // ============================================================================
 //  Работа с группами
@@ -116,9 +184,20 @@ void reset(void) {
         g->calls = 0;
         g->fant_calls = 0;
         g->deficit = 0;
+
+        // сброс per-cycle счётчика у всех живых потоков группы
+        if (g->head != NULL) {
+            mock_thread_t* t = g->head;
+            do {
+                t->got_thread = 0;
+                t = t->next;
+            } while (t != g->head);
+        }
     }
 
     stat_reset(sim.cycle);
+
+    check_invariants();
 }
 
 // Группа с наибольшим дефицитом. Дефициты могут быть отрицательными,
@@ -142,30 +221,45 @@ mock_thread_t* sim_select_thread(int group_id) {
     return g->current;
 }
 
-// BLOCKED: поток не выполняется, но группа уже «заплатила» за решение.
-// Поток запоминает недополученный квант в debt.
+// ============================================================================
+//  Обработчики состояний
+// ============================================================================
+
 static void handle_thread_blocked(mock_thread_t* t) {
+    assert(t != NULL);
+    assert(t->state == THREAD_BLOCKED);
     t->debt++;
     stat_thread_blocked(t, t->stat);
+    assert(t->debt >= 0);
 }
 
-// READY: штатный квант + при наличии долга — дополнительный квант
-// погашения. Погашение не увеличивает calls/R: группа уже учла этот
-// квант в своей квоте ранее.
 static void handle_thread_ready(mock_thread_t* t) {
+    assert(t != NULL);
+    assert(t->state == THREAD_READY);
     stat_thread_ready(t->stat, sim.cycle);
     if (t->debt > 0) {
         t->debt--;
         stat_thread_repay(t->stat);
     }
+    assert(t->debt >= 0);
 }
 
-// ZOMBIE: физическое удаление. Сначала вычитаем из весов и fant_calls
-// то, что было добавлено при создании (или скорректировано ранее),
-// потом вышиваем из списка и пересчитываем дефициты.
 static void handle_thread_remove(mock_thread_t* t) {
+    assert(t != NULL);
+    assert(t->state == THREAD_ZOMBIE);
+
     mock_group_t* g = &sim.groups[find_group(t->priority)];
+    assert(g != NULL);
+    assert(g->count > 0);
+
     share_t s = compute_share(g, &sim);
+    assert(t->got_thread == s.got);
+    assert(s.delta >= 0);
+    assert(s.got >= 0);
+
+    int id = t->id;
+    int priority = t->priority;
+    trace_log(sim.cycle, sim.R, TR_REMOVE_BEFORE, id, priority, g->count, g->fant_calls, g->W, g->W_base, s.got, s.delta, sim.W, sim.W_base);
 
     g->W -= s.delta;
     sim.W -= s.delta;
@@ -173,25 +267,38 @@ static void handle_thread_remove(mock_thread_t* t) {
     sim.W_base -= t->priority;
     g->fant_calls -= s.got;
 
-    // Вышиваем из кругового списка (до статистики, чтобы группа
-    // уже была в новом составе при пересчёте дефицитов)
     remove_thread_from_group(g, t);
-
-    // Передаём в статистику
     stat_thread_remove(t, t->stat, sim.cycle, s.delta);
 
     free(t);
 
     g->count -= 1;
+    assert(g->count >= 0);
 
     // Если группа опустела, сбрасываем состояние её текущего цикла
     if (g->head == NULL) {
+        sim.W -= g->W;  // убрать резидуал из глобального веса
+        g->W = 0;
+        g->fant_calls = 0;
         g->deficit = 0;
         g->calls = 0;
+
+        assert(g->W == 0);
+        assert(g->W_base == 0);
+        assert(g->deficit == 0);
+        assert(g->calls == 0);
+        assert(g->fant_calls == 0);
+        assert(g->count == 0);
+        assert(g->head == NULL);
+        assert(g->current == NULL);
     }
 
     // Пересчёт дефицитов всех групп с новыми весами
     recalculation_deficit();
+
+    trace_log(sim.cycle, sim.R, TR_REMOVE_AFTER, id, priority, g->count, g->fant_calls, g->W, g->W_base, s.got, s.delta, sim.W, sim.W_base);
+
+    check_invariants();
 }
 
 // ============================================================================
@@ -206,6 +313,8 @@ typedef enum {
 // Возвращает STEP_ABORT для ZOMBIE, потому что при удалении поток
 // уже исчез — фиксировать решение по нему нельзя.
 static step_result_t handle_thread_state(mock_thread_t* t) {
+    assert(t != NULL);
+
     switch (t->state) {
         case THREAD_BLOCKED: handle_thread_blocked(t); return STEP_CONTINUE;
         case THREAD_READY  : handle_thread_ready(t); return STEP_CONTINUE;
@@ -220,6 +329,7 @@ static step_result_t handle_thread_state(mock_thread_t* t) {
 // ============================================================================
 
 void sim_step(void) {
+    check_invariants();
     if (sim.W == 0) return;
 
     // 1. Выбор группы с наибольшим дефицитом
@@ -229,19 +339,27 @@ void sim_step(void) {
 
     // 2. Выбор потока
     mock_thread_t* thread = sim_select_thread(gid);
+    assert(thread != NULL);
+    assert(thread == g->current);
 
     // 3. Обработка состояния
     if (handle_thread_state(thread) == STEP_ABORT) return;
 
     // 4. Фиксация решения
     g->current = thread->next;
+    assert(g->current != NULL);
+
     g->calls++;
     g->fant_calls++;
     g->deficit -= sim.W;
     sim.R++;
 
+    thread->got_thread++;
+
     // 5. Обновление дефицитов всех групп на их вес
     update_deficit();
+
+    check_invariants();
 }
 
 // ============================================================================
@@ -287,6 +405,8 @@ void sim_init(int group_count, const int priorities[]) {
     }
 
     stat_init();
+
+    check_invariants();
 }
 
 // ============================================================================
@@ -300,10 +420,15 @@ mock_thread_t* sim_create_thread(int priority) {
     assert(group_id != -1 && "group for this priority must exist");
 
     mock_thread_t* t = calloc(1, sizeof(*t));
+    assert(t != NULL);
     if (!t) return NULL;
 
     mock_group_t* g = &sim.groups[group_id];
     share_t s = compute_share(g, &sim);
+    assert(s.delta >= 0);
+    assert(s.got >= 0);
+
+    if (g->current != NULL) assert(g->current->got_thread == s.got);
 
     t->id = sim.thread_id++;
     t->priority = priority;
@@ -312,6 +437,13 @@ mock_thread_t* sim_create_thread(int priority) {
     t->next = t;
     t->prev = t;
     t->stat = stat_create_thread(t, sim.cycle, s.got);
+    assert(t->stat != NULL);
+
+    if (g->current != NULL) t->got_thread = g->current->got_thread;
+    else t->got_thread = s.got;
+    assert(t->got_thread >= 0);
+
+    trace_log(sim.cycle, sim.R, TR_CREATE_BEFORE, t->id, priority, g->count, g->fant_calls, g->W, g->W_base, s.got, s.delta, sim.W, sim.W_base);
 
     insert_thread_in_group(g, t);
 
@@ -327,10 +459,17 @@ mock_thread_t* sim_create_thread(int priority) {
 
     recalculation_deficit();
 
+    trace_log(sim.cycle, sim.R, TR_CREATE_AFTER, t->id, priority, g->count, g->fant_calls, g->W, g->W_base, s.got, s.delta, sim.W, sim.W_base);
+
+    check_invariants();
+
     return t;
 }
 
-void sim_remove_thread(mock_thread_t* thread) { thread->state = THREAD_ZOMBIE; }
+void sim_remove_thread(mock_thread_t* thread) {
+    assert(thread != NULL);
+    thread->state = THREAD_ZOMBIE;
+}
 
 // Принудительно удалить все оставшиеся потоки во всех группах.
 // Используется в конце симуляции — потоки удаляются целиком, вся
@@ -338,8 +477,12 @@ void sim_remove_thread(mock_thread_t* thread) { thread->state = THREAD_ZOMBIE; }
 void sim_cleanup(void) {
     for (int i = 0; i < sim.group_count; i++) {
         mock_group_t* g = &sim.groups[i];
-        while (g->head != NULL) { handle_thread_remove(g->head); }
+        while (g->head != NULL) {
+            g->head->state = THREAD_ZOMBIE;
+            handle_thread_remove(g->head);
+        }
     }
+    check_invariants();
 }
 
 // ============================================================================
@@ -347,9 +490,13 @@ void sim_cleanup(void) {
 // ============================================================================
 
 void sim_block_thread(mock_thread_t* thread) {
+    assert(thread != NULL);
     if (thread->state == THREAD_READY) thread->state = THREAD_BLOCKED;
+    check_invariants();
 }
 
 void sim_unblock_thread(mock_thread_t* thread) {
+    assert(thread != NULL);
     if (thread->state == THREAD_BLOCKED) thread->state = THREAD_READY;
+    check_invariants();
 }
