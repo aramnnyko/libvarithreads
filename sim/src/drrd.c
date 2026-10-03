@@ -153,10 +153,10 @@ static void handle_thread_blocked(mock_thread_t* t) {
 // погашения. Погашение не увеличивает calls/R: группа уже учла этот
 // квант в своей квоте ранее.
 static void handle_thread_ready(mock_thread_t* t) {
-    stat_thread_ready(t, t->stat, sim.cycle);
+    stat_thread_ready(t->stat, sim.cycle);
     if (t->debt > 0) {
         t->debt--;
-        stat_thread_repay(t, t->stat);
+        stat_thread_repay(t->stat);
     }
 }
 

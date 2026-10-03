@@ -44,8 +44,8 @@ void stat_cleanup(void);
 
 mock_thread_stat_t* stat_create_thread(mock_thread_t* t, int cycle, long long got);
 void stat_thread_blocked(mock_thread_t* t, mock_thread_stat_t* s);
-void stat_thread_ready(mock_thread_t* t, mock_thread_stat_t* s, int cycle);
-void stat_thread_repay(mock_thread_t* t, mock_thread_stat_t* s);
+void stat_thread_ready(mock_thread_stat_t* s, int cycle);
+void stat_thread_repay(mock_thread_stat_t* s);
 void stat_thread_remove(mock_thread_t* t, mock_thread_stat_t* s, int cycle, long long delta);
 
 #endif
