@@ -31,7 +31,7 @@
 BasedOnStyle: Google
 IndentWidth: 4
 AllowShortBlocksOnASingleLine: Always
-ColumnLimit: 200
+ColumnLimit: 210
 AlignConsecutiveAssignments: false
 AlignConsecutiveDeclarations: false
 AlignConsecutiveMacros:
