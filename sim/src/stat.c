@@ -117,13 +117,13 @@ void stat_thread_blocked(mock_thread_t* t, mock_thread_stat_t* s) {
     s->debt_in_this_cycle = true;
 }
 
-void stat_thread_ready(mock_thread_t* t, mock_thread_stat_t* s, int cycle) {
+void stat_thread_ready(mock_thread_stat_t* s, int cycle) {
     s->actual_quant++;
     if (s->first_run_at == -1) s->first_run_at = cycle;
     s->last_run_at = cycle;
 }
 
-void stat_thread_repay(mock_thread_t* t, mock_thread_stat_t* s) {
+void stat_thread_repay(mock_thread_stat_t* s) {
     s->actual_quant++;
     s->debt_repaid++;
 
