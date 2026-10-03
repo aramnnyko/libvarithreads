@@ -1,67 +1,31 @@
-// main.c
-#include "../include/drrd.h"
-#include "../include/print.h"
-#include "../include/stat.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
-int main(void) {
-    int priorities[] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
+#include "../include/fuzz.h"
+#include "../include/trace.h"
 
-    sim_init(10, priorities);
+int main(int argc, char** argv) {
+    unsigned seed = FUZZ_SEED_DEFAULT;
+    int cycles = FUZZ_CYCLES_DEFAULT;
+    const char* trace_path = NULL;
+    int trace_prio = -1;
 
-    // Несколько потоков в обеих группах
-    mock_thread_t* a = sim_create_thread(1);
-    mock_thread_t* b = sim_create_thread(1);
-    mock_thread_t* c = sim_create_thread(2);
-    mock_thread_t* d = sim_create_thread(2);
+    if (argc > 1) seed = (unsigned)strtoul(argv[1], NULL, 10);
+    if (argc > 2) cycles = atoi(argv[2]);
 
-    (void)a;
-    (void)b;
-    (void)c;
-    (void)d;
+    for (int i = 3; i < argc; i++) {
+        if (strcmp(argv[i], "--trace") == 0 && i + 1 < argc) {
+            trace_path = argv[++i];
+        } else if (strcmp(argv[i], "--prio") == 0 && i + 1 < argc) {
+            trace_prio = atoi(argv[++i]);
+        }
+    }
 
-    sim_run(10);
+    if (trace_path) trace_open(trace_path, trace_prio);
 
-    sim_create_thread(3);
-    sim_create_thread(4);
-    sim_create_thread(5);
-    sim_create_thread(6);
-    sim_create_thread(7);
-    sim_create_thread(8);
-    sim_create_thread(9);
-    sim_create_thread(10);
+    fuzz_run(seed, cycles);
 
-    // Проверка блокировки и разблокировки
-    // (если что-то пойдёт не так — увидим по Diff)
-    sim_block_thread(b);
-    sim_run(3);
-    sim_unblock_thread(b);
-    sim_run(3);
-
-    sim_create_thread(3);
-    sim_create_thread(4);
-    sim_create_thread(5);
-    sim_create_thread(6);
-    sim_create_thread(7);
-    sim_create_thread(8);
-    sim_create_thread(9);
-    sim_create_thread(10);
-
-    // Удаление одного потока в середине
-    sim_remove_thread(a);
-    sim_run(5);
-
-    sim_block_thread(b);
-    sim_run(300);
-
-    sim_cleanup();
-
-    print_header();
-    print_thread_stats();
-    print_stats_dept();
-    print_group_stats();
-    print_diff_histogram();
-
-    stat_cleanup();
-
+    if (trace_path) trace_close();
     return 0;
 }

@@ -166,7 +166,6 @@ void print_diff_histogram(void) {
     for (int i = 0; i <= HIST_MAX; i++) {
         if (hist[i] == 0) continue;
         printf("%2d | ", i);
-        for (int j = 0; j < hist[i]; j++) putchar('#');
         printf(" %d\n", hist[i]);
     }
 }

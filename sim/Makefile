@@ -1,9 +1,13 @@
 CC      = gcc
-CFLAGS  = -Wall -Wextra -g -std=c11
+CFLAGS  = -Wall -Wextra -O2 -g -std=c11 -Iinclude
 
-SRC = src/drrd.c src/stat.c src/print.c src/main.c
+SRC = src/drrd.c src/stat.c src/print.c src/fuzz.c src/trace.c src/main.c
 OBJ = $(SRC:.c=.o)
 BIN = sim
+
+.PHONY: all clean run
+
+all: $(BIN)
 
 $(BIN): $(OBJ)
 	$(CC) $(CFLAGS) -o $@ $(OBJ)
@@ -14,4 +18,5 @@ $(BIN): $(OBJ)
 clean:
 	rm -f $(OBJ) $(BIN)
 
-.PHONY: clean
+run: $(BIN)
+	./$(BIN) 1 1000
