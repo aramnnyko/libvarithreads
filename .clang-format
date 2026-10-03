@@ -1,0 +1,50 @@
+# # .clang-format
+# Language: Cpp
+# IndentWidth: 4
+# ColumnLimit: 200
+# AllowShortIfStatementsOnASingleLine: AllIfsAndElse
+# AllowShortBlocksOnASingleLine: Always
+# AllowShortFunctionsOnASingleLine: All
+# AllowShortLoopsOnASingleLine: true
+# AllowShortCaseLabelsOnASingleLine: true
+# BreakBeforeBraces: Attach
+# BraceWrapping:
+#   AfterControlStatement: Never
+#   AfterFunction: false
+#   AfterClass: false
+#   AfterStruct: false
+#   AfterEnum: false
+#   AfterNamespace: false
+#   AfterExternBlock: false
+#   BeforeCatch: false
+#   BeforeElse: false
+#   IndentBraces: false
+#   SplitEmptyFunction: false
+#   SplitEmptyRecord: false
+#   SplitEmptyNamespace: false
+# AlignConsecutiveAssignments: false
+# AlignConsecutiveDeclarations: false
+# AlignConsecutiveMacros: false
+# AlignOperands: false
+
+
+BasedOnStyle: Google
+IndentWidth: 4
+AllowShortBlocksOnASingleLine: Always
+ColumnLimit: 200
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AlignConsecutiveMacros:
+  Enabled: true
+  AlignCompound: true
+  AlignFunctionDeclarations: true
+  AlignFunctionPointers: true
+  PadOperators: true
+AlignConsecutiveShortCaseStatements:
+  Enabled: true
+  AlignCaseArrows: true
+  AlignCaseColons: true
+AlignEscapedNewlines: LeftWithLastLine
+AlignOperands: AlignAfterOperator
+AllowShortIfStatementsOnASingleLine: AllIfsAndElse
+AllowShortCaseLabelsOnASingleLine: true

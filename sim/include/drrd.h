@@ -37,8 +37,6 @@ typedef struct mock_group {
     mock_thread_t* head;
     mock_thread_t* current;
 
-    int thread_id;  //  для присвоения ID новому потоку
-
 } mock_group_t;
 
 typedef struct {
@@ -46,6 +44,9 @@ typedef struct {
     long long W;       // Текущий общий вес (может временно меняться в середине цикла)
     long long W_base;  // постоянный общий вес (без временных добавок Δ)
     long long R;       // Число квантов в текущем цикле
+
+    int cycle;
+    int thread_id;  //  для присвоения ID новому потоку
 
     mock_group_t groups[MAX_GROUPS];
 
@@ -55,10 +56,12 @@ typedef struct {
 
 void sim_init(int group_count, const int priorities[]);
 mock_thread_t* sim_create_thread(int priority);
-void sim_block_thread(int thread_id);
-void sim_unblock_thread(int thread_id);
-void sim_remove_thread(int thread_id);
-void sim_run(int iterations);
-void sim_cleanup(void);
 
+void sim_block_thread(mock_thread_t* thread);
+void sim_unblock_thread(mock_thread_t* thread);
+void sim_remove_thread(mock_thread_t* thread);
+
+void sim_run(int iterations);
+
+void sim_cleanup(void);
 #endif
