@@ -24,13 +24,15 @@ typedef struct mock_thread {
 
     struct mock_thread_stat* stat;
     void* user_data;  // для расширений: fuzz, будущий рантайм
+
+    long long got_debugging; // отладочная переменная
 } mock_thread_t;
 
 typedef struct mock_group {
     int priority;
     int count;
-    long long W;
-    long long W_base;
+    long long W;       // Текущий общий вес
+    long long W_base;  // Постоянный общий вес
     long long deficit;
     long long calls;
     long long fant_calls;
@@ -42,6 +44,7 @@ typedef struct mock_group {
 typedef struct {
     int group_count;   // Реальное число групп (<= MAX_GROUPS)
     long long W;       // Текущий общий вес (может временно меняться в середине цикла)
+    long long W_eff;   // Сколько осталось. для вычислений
     long long W_base;  // постоянный общий вес (без временных добавок Δ)
     long long R;       // Число квантов в текущем цикле
 

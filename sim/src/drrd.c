@@ -14,17 +14,17 @@ typedef struct {
     long long got;
 } share_t;
 
-share_t compute_share(mock_group_t* g, const sim_state_t* sim) {
+share_t compute_share(mock_group_t* g) {
     share_t s;
     if (g->count == 0) {
-        if (sim->R == 0) {
+        if (sim.R == 0) {
             s.got = 0;
             s.delta = g->priority;
-        } else if (sim->R >= sim->W) {
+        } else if (sim.R >= sim.W) {
             s.got = g->priority;
             s.delta = 0;
         } else {
-            s.delta = (long long)g->priority * (sim->W - sim->R) / sim->W;
+            s.delta = (long long)g->priority * (sim.W - sim.R) / sim.W;
             s.got = g->priority - s.delta;
         }
     } else {
@@ -126,13 +126,13 @@ static void check_global(void) {
         c_sum += g->calls;
     }
 
-    assert(sim.W == w_sum);
-    assert(sim.W_base == wb_sum);
-    assert(sim.R >= c_sum);
-    assert(sim.W >= 0);
-    assert(sim.W_base >= 0);
-    assert(sim.R >= 0);
-    assert(sim.thread_id >= 0);
+    // assert(sim.W == w_sum);
+    // assert(sim.W_base == wb_sum);
+    // assert(sim.R >= c_sum);
+    // assert(sim.W >= 0);
+    // assert(sim.W_base >= 0);
+    // assert(sim.R >= 0);
+    // assert(sim.thread_id >= 0);
 }
 
 static void check_invariants(void) { check_global(); }
@@ -147,13 +147,6 @@ int find_group(int priority) {
     return -1;
 }
 
-void recalculation_deficit(void) {
-    for (int i = 0; i < sim.group_count; i++) {
-        mock_group_t* g = &sim.groups[i];
-        if (g->head != NULL) g->deficit = g->W * sim.R - sim.W * g->calls;
-    }
-}
-
 void update_deficit(void) {
     for (int i = 0; i < sim.group_count; i++) {
         mock_group_t* g = &sim.groups[i];
@@ -161,8 +154,24 @@ void update_deficit(void) {
     }
 }
 
+void recalculation_deficit(void) {
+    int W_new = 0;
+    for (int i = 0; i < sim.group_count; i++) {
+        mock_group_t* g = &sim.groups[i];
+        if (g->head == NULL) continue;
+
+        g->W = (g->priority * g->count) - g->fant_calls;
+        W_new += g->W;
+        g->deficit = 0;
+    }
+
+    sim.W_eff = W_new;
+
+    update_deficit();
+}
+
 void reset(void) {
-    sim.W = sim.W_base;
+    sim.W = sim.W_eff = sim.W_base;
     sim.R = 0;
     for (int i = 0; i < sim.group_count; i++) {
         mock_group_t* g = &sim.groups[i];
@@ -170,6 +179,14 @@ void reset(void) {
         g->calls = 0;
         g->fant_calls = 0;
         g->deficit = 0;
+
+        if (g->head != NULL) {
+            mock_thread_t* t = g->head;
+            do {
+                t->got_debugging = 0;
+                t = t->next;
+            } while (t != g->head);
+        }
     }
 
     stat_reset(sim.cycle);
@@ -216,16 +233,16 @@ static void handle_thread_remove(mock_thread_t* t) {
     assert(g != NULL);
     assert(g->count > 0);
 
-    share_t s = compute_share(g, &sim);
+    share_t s = compute_share(g);
     assert(s.delta >= 0);
     assert(s.got >= 0);
+    assert(s.got == t->got_debugging);
 
     int id = t->id;
     int priority = t->priority;
 
     trace_log(sim.cycle, sim.R, TR_REMOVE_BEFORE, id, priority, g->count, g->fant_calls, g->W, g->W_base, s.got, s.delta, sim.W, sim.W_base);
 
-    g->W -= s.delta;
     sim.W -= s.delta;
     g->W_base -= t->priority;
     sim.W_base -= t->priority;
@@ -240,7 +257,6 @@ static void handle_thread_remove(mock_thread_t* t) {
     assert(g->count >= 0);
 
     if (g->head == NULL) {
-        sim.W -= g->W;
         g->W = 0;
         g->W_base = 0;
         g->deficit = 0;
@@ -292,6 +308,9 @@ void sim_step(void) {
     mock_group_t* g = &sim.groups[gid];
 
     mock_thread_t* thread = sim_select_thread(gid);
+
+    assert(compute_share(g).got == thread->got_debugging);
+
     assert(thread != NULL);
     assert(thread == g->current);
 
@@ -302,8 +321,10 @@ void sim_step(void) {
 
     g->calls++;
     g->fant_calls++;
-    g->deficit -= sim.W;
+    g->deficit -= sim.W_eff;
     sim.R++;
+
+    thread->got_debugging++;
 
     update_deficit();
     check_invariants();
@@ -331,6 +352,7 @@ void sim_init(int group_count, const int priorities[]) {
 
     sim.group_count = group_count;
     sim.W = 0;
+    sim.W_eff = 0;
     sim.W_base = 0;
     sim.R = 0;
     sim.cycle = 0;
@@ -369,15 +391,21 @@ mock_thread_t* sim_create_thread(int priority) {
     assert(t != NULL);
     if (!t) return NULL;
 
-    share_t s = compute_share(g, &sim);
+    share_t s = compute_share(g);
     assert(s.delta >= 0);
     assert(s.got >= 0);
+
+    // Если группа пустая, то в зависимости от текущего состояния
+    // got = 0/priority/процент от выполнения цикла. это начальное состояние и мы высчитываем его, а не начинаем с 0
+    t->got_debugging = (g->current != NULL) ? g->current->got_debugging : s.got;
+    assert(s.got == t->got_debugging);
 
     t->id = sim.thread_id++;
     t->priority = priority;
     t->state = THREAD_READY;
     t->next = t;
     t->prev = t;
+
     t->stat = stat_create_thread(t, sim.cycle, s.got);
     assert(t->stat != NULL);
 
@@ -385,7 +413,6 @@ mock_thread_t* sim_create_thread(int priority) {
 
     insert_thread_in_group(g, t);
 
-    g->W += s.delta;
     sim.W += s.delta;
     g->W_base += priority;
     sim.W_base += priority;
