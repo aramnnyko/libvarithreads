@@ -8,7 +8,8 @@
 
 // Группы, с которыми работает симуляция
 // fuzz.c
-static const int g_priorities[FUZZ_NUM_GROUPS] = {1, 2, 5, 10, 20, 30, 50, 70, 90, 100};
+// static const int g_priorities[FUZZ_NUM_GROUPS] = {1, 2, 3, 4, 5, 9, 10, 11, 12, 13};
+static const int g_priorities[FUZZ_NUM_GROUPS] = {1, 2, 3, 4, 5};
 
 // Глобальный sim из drrd.c
 extern sim_state_t sim;
