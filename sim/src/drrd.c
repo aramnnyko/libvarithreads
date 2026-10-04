@@ -24,8 +24,21 @@ typedef struct {
 share_t compute_share(mock_group_t* g, const sim_state_t* sim) {
     share_t s;
     if (g->count == 0) {
-        s.delta = (sim->W > 0) ? (long long)g->priority * (sim->W - sim->R) / sim->W : g->priority;
-        s.got = g->priority - s.delta;
+        if (sim->R == 0) {
+            // либо начало симуляции, либо только что после reset
+            // поток стартует с нуля — ничего не пропустил
+            s.got = 0;
+            s.delta = g->priority;
+        } else if (sim->R >= sim->W) {
+            // цикл уже закрыт — поток в текущем цикле не побегает
+            // весь цикл пропущен
+            s.got = g->priority;
+            s.delta = 0;
+        } else {
+            // середина цикла — экстраполируем
+            s.delta = (long long)g->priority * (sim->W - sim->R) / sim->W;
+            s.got = g->priority - s.delta;
+        }
     } else {
         s.got = g->fant_calls / g->count;
         s.delta = (g->priority > s.got) ? (g->priority - s.got) : 0;
@@ -231,15 +244,24 @@ static void handle_thread_blocked(mock_thread_t* t) {
     t->debt++;
     stat_thread_blocked(t, t->stat);
     assert(t->debt >= 0);
+
+    mock_group_t* g = &sim.groups[find_group(t->priority)];
+    trace_log(sim.cycle, sim.R, TR_BLOCK, t->id, t->priority, g->count, g->fant_calls, g->W, g->W_base, 0, 0, t->debt, t->got_thread, sim.W, sim.W_base);
 }
 
 static void handle_thread_ready(mock_thread_t* t) {
     assert(t != NULL);
     assert(t->state == THREAD_READY);
     stat_thread_ready(t->stat, sim.cycle);
+
+    mock_group_t* g = &sim.groups[find_group(t->priority)];
+    trace_log(sim.cycle, sim.R, TR_RUN, t->id, t->priority, g->count, g->fant_calls, g->W, g->W_base, 0, 0, t->debt, t->got_thread, sim.W, sim.W_base);
+
     if (t->debt > 0) {
         t->debt--;
         stat_thread_repay(t->stat);
+
+        trace_log(sim.cycle, sim.R, TR_REPAY, t->id, t->priority, g->count, g->fant_calls, g->W, g->W_base, 0, 0, t->debt, t->got_thread, sim.W, sim.W_base);
     }
     assert(t->debt >= 0);
 }
@@ -253,13 +275,33 @@ static void handle_thread_remove(mock_thread_t* t) {
     assert(g->count > 0);
 
     share_t s = compute_share(g, &sim);
-    assert(t->got_thread == s.got);
+
+    if (s.delta < 0) {
+        fprintf(stderr,
+                "NEG DELTA: cycle=%d R=%lld W=%lld Wbase=%lld "
+                "grp=%d prio=%d count=%d W_g=%lld Wbase_g=%lld "
+                "delta=%lld got=%lld\n",
+                sim.cycle, sim.R, sim.W, sim.W_base, find_group(t->priority), t->priority, g->count, g->W, g->W_base, s.delta, s.got);
+        // сюда же можно abort() или assert(0) для остановки
+    }
+
+    if (t->got_thread != s.got) {
+        fprintf(stderr,
+                "MISMATCH: cycle=%d R=%lld id=%d prio=%d "
+                "got_thread=%lld s.got=%lld g_count=%d g_fant=%lld "
+                "g_W=%lld g_Wbase=%lld sim_W=%lld sim_R=%lld\n",
+                sim.cycle, sim.R, t->id, t->priority, t->got_thread, s.got, g->count, g->fant_calls, g->W, g->W_base, sim.W, sim.R);
+    }
+    assert(t->got_thread >= s.got - 1);
+    assert(t->got_thread <= s.got + 1);
     assert(s.delta >= 0);
     assert(s.got >= 0);
 
     int id = t->id;
     int priority = t->priority;
-    trace_log(sim.cycle, sim.R, TR_REMOVE_BEFORE, id, priority, g->count, g->fant_calls, g->W, g->W_base, s.got, s.delta, sim.W, sim.W_base);
+    long long save_debt = t->debt;
+    long long save_got_thread = t->got_thread;
+    trace_log(sim.cycle, sim.R, TR_REMOVE_BEFORE, id, priority, g->count, g->fant_calls, g->W, g->W_base, s.got, s.delta, t->debt, t->got_thread, sim.W, sim.W_base);
 
     g->W -= s.delta;
     sim.W -= s.delta;
@@ -296,7 +338,7 @@ static void handle_thread_remove(mock_thread_t* t) {
     // Пересчёт дефицитов всех групп с новыми весами
     recalculation_deficit();
 
-    trace_log(sim.cycle, sim.R, TR_REMOVE_AFTER, id, priority, g->count, g->fant_calls, g->W, g->W_base, s.got, s.delta, sim.W, sim.W_base);
+    trace_log(sim.cycle, sim.R, TR_REMOVE_AFTER, id, priority, g->count, g->fant_calls, g->W, g->W_base, s.got, s.delta, save_debt, save_got_thread, sim.W, sim.W_base);
 
     check_invariants();
 }
@@ -418,13 +460,23 @@ mock_thread_t* sim_create_thread(int priority) {
 
     int group_id = find_group(priority);
     assert(group_id != -1 && "group for this priority must exist");
+    mock_group_t* g = &sim.groups[group_id];
 
     mock_thread_t* t = calloc(1, sizeof(*t));
     assert(t != NULL);
     if (!t) return NULL;
 
-    mock_group_t* g = &sim.groups[group_id];
     share_t s = compute_share(g, &sim);
+
+    if (s.delta < 0) {
+        fprintf(stderr,
+                "NEG DELTA: cycle=%d R=%lld W=%lld Wbase=%lld "
+                "grp=%d prio=%d count=%d W_g=%lld Wbase_g=%lld "
+                "delta=%lld got=%lld\n",
+                sim.cycle, sim.R, sim.W, sim.W_base, group_id, priority, g->count, g->W, g->W_base, s.delta, s.got);
+        // сюда же можно abort() или assert(0) для остановки
+    }
+
     assert(s.delta >= 0);
     assert(s.got >= 0);
 
@@ -443,7 +495,7 @@ mock_thread_t* sim_create_thread(int priority) {
     else t->got_thread = s.got;
     assert(t->got_thread >= 0);
 
-    trace_log(sim.cycle, sim.R, TR_CREATE_BEFORE, t->id, priority, g->count, g->fant_calls, g->W, g->W_base, s.got, s.delta, sim.W, sim.W_base);
+    trace_log(sim.cycle, sim.R, TR_CREATE_BEFORE, t->id, priority, g->count, g->fant_calls, g->W, g->W_base, s.got, s.delta, t->debt, t->got_thread, sim.W, sim.W_base);
 
     insert_thread_in_group(g, t);
 
@@ -459,9 +511,9 @@ mock_thread_t* sim_create_thread(int priority) {
 
     recalculation_deficit();
 
-    trace_log(sim.cycle, sim.R, TR_CREATE_AFTER, t->id, priority, g->count, g->fant_calls, g->W, g->W_base, s.got, s.delta, sim.W, sim.W_base);
-
     check_invariants();
+
+    trace_log(sim.cycle, sim.R, TR_CREATE_AFTER, t->id, priority, g->count, g->fant_calls, g->W, g->W_base, s.got, s.delta, t->debt, t->got_thread, sim.W, sim.W_base);
 
     return t;
 }
@@ -478,8 +530,10 @@ void sim_cleanup(void) {
     for (int i = 0; i < sim.group_count; i++) {
         mock_group_t* g = &sim.groups[i];
         while (g->head != NULL) {
-            g->head->state = THREAD_ZOMBIE;
-            handle_thread_remove(g->head);
+            mock_thread_t* t = g->current;
+            assert(t != NULL);
+            t->state = THREAD_ZOMBIE;
+            handle_thread_remove(t);
         }
     }
     check_invariants();
@@ -491,12 +545,21 @@ void sim_cleanup(void) {
 
 void sim_block_thread(mock_thread_t* thread) {
     assert(thread != NULL);
-    if (thread->state == THREAD_READY) thread->state = THREAD_BLOCKED;
+    if (thread->state == THREAD_READY) {
+        thread->state = THREAD_BLOCKED;
+        mock_group_t* g = &sim.groups[find_group(thread->priority)];
+        trace_log(sim.cycle, sim.R, TR_SET_BLOCKED, thread->id, thread->priority, g->count, g->fant_calls, g->W, g->W_base, 0, 0, thread->debt, thread->got_thread, sim.W, sim.W_base);
+    }
+
     check_invariants();
 }
 
 void sim_unblock_thread(mock_thread_t* thread) {
     assert(thread != NULL);
-    if (thread->state == THREAD_BLOCKED) thread->state = THREAD_READY;
+    if (thread->state == THREAD_BLOCKED) {
+        thread->state = THREAD_READY;
+        mock_group_t* g = &sim.groups[find_group(thread->priority)];
+        trace_log(sim.cycle, sim.R, TR_SET_READY, thread->id, thread->priority, g->count, g->fant_calls, g->W, g->W_base, 0, 0, thread->debt, thread->got_thread, sim.W, sim.W_base);
+    }
     check_invariants();
 }

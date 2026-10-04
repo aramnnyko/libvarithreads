@@ -28,6 +28,9 @@ typedef struct mock_thread {
     void* user_data;  // для расширений: fuzz, будущий рантайм
 
     long long got_thread;
+
+    long long got;
+
 } mock_thread_t;
 
 typedef struct mock_group {
