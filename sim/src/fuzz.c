@@ -8,8 +8,10 @@
 
 // Группы, с которыми работает симуляция
 // fuzz.c
+
+static const int g_priorities[FUZZ_NUM_GROUPS] = {1, 2, 3, 4, 5, 9, 100, 110, 120, 130};
 // static const int g_priorities[FUZZ_NUM_GROUPS] = {1, 2, 3, 4, 5, 9, 10, 11, 12, 13};
-static const int g_priorities[FUZZ_NUM_GROUPS] = {1, 2, 3, 4, 5};
+// static const int g_priorities[FUZZ_NUM_GROUPS] = {1, 2, 3, 4, 5};
 
 // Глобальный sim из drrd.c
 extern sim_state_t sim;
@@ -105,8 +107,6 @@ static int max_alive_seen = 0;
 
 static int can_create(void) { return (n_running + n_blocked) < FUZZ_MAX_ALIVE; }
 static int can_remove(void) { return (n_running + n_blocked) > FUZZ_MIN_ALIVE; }
-static int can_block(void) { return n_running > FUZZ_MIN_RUNNING_TO_BLOCK; }
-static int can_unblock(void) { return n_blocked >= FUZZ_MIN_BLOCKED_TO_UNBLOCK; }
 
 // ============================================================================
 //  Действия
@@ -143,26 +143,6 @@ static void do_remove(void) {
     ev_removed++;
 }
 
-static void do_block(void) {
-    if (n_running == 0) return;
-
-    mock_thread_t* t = running[rng_range(n_running)];
-    pool_remove(t);
-    pool_add(POOL_BLOCKED, t);
-    sim_block_thread(t);
-    ev_blocked++;
-}
-
-static void do_unblock(void) {
-    if (n_blocked == 0) return;
-
-    mock_thread_t* t = blocked[rng_range(n_blocked)];
-    pool_remove(t);
-    pool_add(POOL_RUNNING, t);
-    sim_unblock_thread(t);
-    ev_unblocked++;
-}
-
 // ============================================================================
 //  Диспетчер с каскадом одной замены
 // ============================================================================
@@ -177,24 +157,14 @@ static int try_event(int ev) {
             if (!can_remove()) return 0;
             do_remove();
             return 1;
-        case EV_BLOCK:
-            if (!can_block()) return 0;
-            do_block();
-            return 1;
-        case EV_UNBLOCK:
-            if (!can_unblock()) return 0;
-            do_unblock();
-            return 1;
     }
     return 0;
 }
 
 static int pair_of(int ev) {
     switch (ev) {
-        case EV_CREATE : return EV_REMOVE;
-        case EV_REMOVE : return EV_CREATE;
-        case EV_BLOCK  : return EV_UNBLOCK;
-        case EV_UNBLOCK: return EV_BLOCK;
+        case EV_CREATE: return EV_REMOVE;
+        case EV_REMOVE: return EV_CREATE;
     }
     return EV_NONE;
 }
@@ -205,7 +175,6 @@ static int pick_event_type(void) {
     r -= FUZZ_PROB_CREATE;
     if (r < FUZZ_PROB_REMOVE) return EV_REMOVE;
     r -= FUZZ_PROB_REMOVE;
-    if (r < FUZZ_PROB_BLOCK) return EV_BLOCK;
     return EV_UNBLOCK;
 }
 
@@ -263,7 +232,6 @@ void fuzz_run(unsigned seed, int cycles) {
 
     print_header();
     print_thread_stats();
-    print_stats_dept();
     print_group_stats();
     print_diff_histogram();
 

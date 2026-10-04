@@ -12,25 +12,18 @@ struct mock_thread_stat;
 
 #define MAX_GROUPS 10
 
-typedef enum { THREAD_READY, THREAD_BLOCKED, THREAD_DONE, THREAD_ZOMBIE } thread_state_t;
+typedef enum { THREAD_READY, THREAD_ZOMBIE } thread_state_t;
 
 typedef struct mock_thread {
     int id;
 
     int priority;
     thread_state_t state;
-    long long debt;
     struct mock_thread* next;
     struct mock_thread* prev;
 
     struct mock_thread_stat* stat;
-
     void* user_data;  // для расширений: fuzz, будущий рантайм
-
-    long long got_thread;
-
-    long long got;
-
 } mock_thread_t;
 
 typedef struct mock_group {
@@ -64,8 +57,6 @@ typedef struct {
 void sim_init(int group_count, const int priorities[]);
 mock_thread_t* sim_create_thread(int priority);
 
-void sim_block_thread(mock_thread_t* thread);
-void sim_unblock_thread(mock_thread_t* thread);
 void sim_remove_thread(mock_thread_t* thread);
 
 void sim_run(int iterations);
