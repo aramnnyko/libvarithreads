@@ -1,5 +1,5 @@
 CC      = gcc
-CFLAGS  = -Wall -Wextra -O2 -g -std=c11 -Iinclude
+CFLAGS  = -Wall -Werror -Wextra -O2 -g -std=c11 -Iinclude
 
 SRC = src/drrd.c src/stat.c src/print.c src/fuzz.c src/trace.c src/main.c
 OBJ = $(SRC:.c=.o)
