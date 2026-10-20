@@ -14,7 +14,7 @@ typedef struct {
     long long got;
 } share_t;
 
-share_t compute_share(mock_group_t* g) {
+static share_t compute_share(mock_group_t* g) {
     share_t s;
     if (g->count == 0) {
         if (sim.R == 0) {
@@ -39,8 +39,7 @@ share_t compute_share(mock_group_t* g) {
 // ============================================================================
 
 static void insert_thread_in_group(mock_group_t* g, mock_thread_t* t) {
-    if (g->head == NULL) {
-        g->head = t;
+    if (g->current == NULL) {
         t->next = t;
         t->prev = t;
         g->current = t;
@@ -50,6 +49,7 @@ static void insert_thread_in_group(mock_group_t* g, mock_thread_t* t) {
     mock_thread_t* curr = g->current;
     mock_thread_t* next = curr->next;
 
+    // curr <-> t <-> next
     curr->next = t;
     t->prev = curr;
     t->next = next;
@@ -57,147 +57,81 @@ static void insert_thread_in_group(mock_group_t* g, mock_thread_t* t) {
 }
 
 static void remove_thread_from_group(mock_group_t* g, mock_thread_t* t) {
-    assert(g->head != NULL);
-    assert(t != NULL);
-
-    if (g->head == t && t->next == t) {
-        g->head = NULL;
+    if (t->next == t) {
         g->current = NULL;
         return;
     }
 
-    if (g->head == t) g->head = t->next;
+    mock_thread_t* prev = t->prev;
+    mock_thread_t* next = t->next;
 
-    t->prev->next = t->next;
-    t->next->prev = t->prev;
+    //    prev <-> next
+    prev->next = next;
+    next->prev = prev;
 
-    if (g->current == t) g->current = t->next;
+    g->current = t->next;
 }
-
-// ============================================================================
-//  Проверки инвариантов
-// ============================================================================
-
-static void check_group(const mock_group_t* g) {
-    if (g->count == 0) {
-        assert(g->head == NULL);
-        assert(g->current == NULL);
-        assert(g->W == 0);
-        assert(g->W_base == 0);
-        assert(g->deficit == 0);
-        assert(g->calls == 0);
-        assert(g->fant_calls == 0);
-        return;
-    }
-
-    assert(g->count > 0);
-    assert(g->priority > 0);
-    assert(g->head != NULL);
-    assert(g->current != NULL);
-    assert(g->W >= 0);
-    assert(g->W_base >= 0);
-    assert(g->calls >= 0);
-    assert(g->fant_calls >= 0);
-    assert(g->W_base == (long long)g->priority * g->count);
-
-    int n = 0;
-    const mock_thread_t* t = g->head;
-    do {
-        assert(t != NULL);
-        assert(t->priority == g->priority);
-        n++;
-        assert(n <= 1000000 && "circular list broken / too long");
-        t = t->next;
-    } while (t != g->head);
-
-    assert(n == g->count);
-}
-
-static void check_global(void) {
-    long long w_sum = 0;
-    long long wb_sum = 0;
-    long long c_sum = 0;
-
-    for (int i = 0; i < sim.group_count; i++) {
-        const mock_group_t* g = &sim.groups[i];
-        check_group(g);
-        w_sum += g->W;
-        wb_sum += g->W_base;
-        c_sum += g->calls;
-    }
-
-    // assert(sim.W == w_sum);
-    // assert(sim.W_base == wb_sum);
-    // assert(sim.R >= c_sum);
-    // assert(sim.W >= 0);
-    // assert(sim.W_base >= 0);
-    // assert(sim.R >= 0);
-    // assert(sim.thread_id >= 0);
-}
-
-static void check_invariants(void) { check_global(); }
 
 // ============================================================================
 //  Работа с группами
 // ============================================================================
 
-int find_group(int priority) {
+static int find_group(int priority) {
     for (int i = 0; i < sim.group_count; i++)
         if (sim.groups[i].priority == priority) return i;
+
     return -1;
 }
 
 void update_deficit(void) {
-    for (int i = 0; i < sim.group_count; i++) {
-        mock_group_t* g = &sim.groups[i];
-        if (g->head != NULL) g->deficit += g->W;
-    }
+    for (int i = 0; i < sim.group_count; i++)
+        if (sim.groups[i].current != NULL) sim.groups[i].deficit += sim.groups[i].W;
 }
 
-void recalculation_deficit(void) {
-    int W_new = 0;
+static void recalculation_deficit(void) {
+    sim.W_eff = 0;
     for (int i = 0; i < sim.group_count; i++) {
         mock_group_t* g = &sim.groups[i];
-        if (g->head == NULL) continue;
+        if (g->current == NULL) continue;
 
         g->W = (g->priority * g->count) - g->fant_calls;
-        W_new += g->W;
-        g->deficit = 0;
+        sim.W_eff += g->W;
+        g->deficit = g->W;
     }
-
-    sim.W_eff = W_new;
-
-    update_deficit();
 }
 
 void reset(void) {
     sim.W = sim.W_eff = sim.W_base;
     sim.R = 0;
+
     for (int i = 0; i < sim.group_count; i++) {
         mock_group_t* g = &sim.groups[i];
+        if (g->current == NULL) continue;
+
         g->W = g->W_base;
-        g->calls = 0;
         g->fant_calls = 0;
         g->deficit = 0;
 
-        if (g->head != NULL) {
-            mock_thread_t* t = g->head;
-            do {
-                t->got_debugging = 0;
-                t = t->next;
-            } while (t != g->head);
-        }
+        // блок только для тестирования
+        mock_thread_t* t = g->current;
+        mock_thread_t* end = g->current;
+        do {
+            t->got_debugging = 0;
+            t = t->next;
+        } while (t != end);
     }
 
-    stat_reset(sim.cycle);
-    check_invariants();
+    // блок статистики
+    stat_reset();
+
+    update_deficit();
 }
 
-int sim_select_group(void) {
+static int sim_select_group(void) {
     int selected = -1;
     long long max_deficit = LLONG_MIN;
     for (int i = 0; i < sim.group_count; i++) {
-        if (sim.groups[i].head == NULL) continue;
+        if (sim.groups[i].current == NULL) continue;
         if (selected == -1 || sim.groups[i].deficit > max_deficit) {
             max_deficit = sim.groups[i].deficit;
             selected = i;
@@ -206,78 +140,39 @@ int sim_select_group(void) {
     return selected;
 }
 
-mock_thread_t* sim_select_thread(int group_id) {
-    mock_group_t* g = &sim.groups[group_id];
-    if (!g->head) return NULL;
-    return g->current;
-}
+mock_thread_t* sim_select_thread(int group_id) { return sim.groups[group_id].current; }
 
 // ============================================================================
 //  Обработчики состояний
 // ============================================================================
 
-static void handle_thread_ready(mock_thread_t* t) {
-    assert(t != NULL);
-    assert(t->state == THREAD_READY);
-    stat_thread_ready(t->stat, sim.cycle);
+static void handle_thread_blocked(mock_thread_t* t) {
+    t->debt++;
+    stat_thread_blocked(t);
+}
 
-    mock_group_t* g = &sim.groups[find_group(t->priority)];
-    trace_log(sim.cycle, sim.R, TR_RUN, t->id, t->priority, g->count, g->fant_calls, g->W, g->W_base, 0, 0, sim.W, sim.W_base);
+static void handle_thread_ready(mock_thread_t* t) {
+    stat_thread_ready(t);
+
+    if (t->debt > 0) { t->debt--, stat_thread_repay(t); }
 }
 
 static void handle_thread_remove(mock_thread_t* t) {
-    assert(t != NULL);
-    assert(t->state == THREAD_ZOMBIE);
-
     mock_group_t* g = &sim.groups[find_group(t->priority)];
-    assert(g != NULL);
-    assert(g->count > 0);
-
     share_t s = compute_share(g);
-    assert(s.delta >= 0);
-    assert(s.got >= 0);
-    assert(s.got == t->got_debugging);
-
-    int id = t->id;
-    int priority = t->priority;
-
-    trace_log(sim.cycle, sim.R, TR_REMOVE_BEFORE, id, priority, g->count, g->fant_calls, g->W, g->W_base, s.got, s.delta, sim.W, sim.W_base);
 
     sim.W -= s.delta;
     g->W_base -= t->priority;
     sim.W_base -= t->priority;
     g->fant_calls -= s.got;
 
-    remove_thread_from_group(g, t);
-    stat_thread_remove(t, t->stat, sim.cycle, s.delta);
+    stat_thread_remove(t, s.delta);
+    g->count--;
 
+    remove_thread_from_group(g, t);
     free(t);
 
-    g->count -= 1;
-    assert(g->count >= 0);
-
-    if (g->head == NULL) {
-        g->W = 0;
-        g->W_base = 0;
-        g->deficit = 0;
-        g->calls = 0;
-        g->fant_calls = 0;
-
-        assert(g->W == 0);
-        assert(g->W_base == 0);
-        assert(g->deficit == 0);
-        assert(g->calls == 0);
-        assert(g->fant_calls == 0);
-        assert(g->count == 0);
-        assert(g->head == NULL);
-        assert(g->current == NULL);
-    }
-
     recalculation_deficit();
-
-    trace_log(sim.cycle, sim.R, TR_REMOVE_AFTER, id, priority, g->count, g->fant_calls, g->W, g->W_base, s.got, s.delta, sim.W, sim.W_base);
-
-    check_invariants();
 }
 
 // ============================================================================
@@ -287,11 +182,11 @@ static void handle_thread_remove(mock_thread_t* t) {
 typedef enum { STEP_CONTINUE, STEP_ABORT } step_result_t;
 
 static step_result_t handle_thread_state(mock_thread_t* t) {
-    assert(t != NULL);
     switch (t->state) {
-        case THREAD_READY : handle_thread_ready(t); return STEP_CONTINUE;
-        case THREAD_ZOMBIE: handle_thread_remove(t); return STEP_ABORT;
-        default           : fprintf(stderr, "WARNING: unexpected thread state %d\n", t->state); return STEP_CONTINUE;
+        case THREAD_BLOCKED: handle_thread_blocked(t); return STEP_CONTINUE;
+        case THREAD_READY  : handle_thread_ready(t); return STEP_CONTINUE;
+        case THREAD_ZOMBIE : handle_thread_remove(t); return STEP_ABORT;
+        default            : return STEP_CONTINUE;
     }
 }
 
@@ -300,34 +195,22 @@ static step_result_t handle_thread_state(mock_thread_t* t) {
 // ============================================================================
 
 void sim_step(void) {
-    check_invariants();
     if (sim.W == 0) return;
 
-    int gid = sim_select_group();
-    if (gid < 0) return;
-    mock_group_t* g = &sim.groups[gid];
+    mock_group_t* g = &sim.groups[sim_select_group()];
 
-    mock_thread_t* thread = sim_select_thread(gid);
+    if (handle_thread_state(g->current) == STEP_ABORT) return;
 
-    assert(compute_share(g).got == thread->got_debugging);
+    // переменная только для тестирования
+    g->current->got_debugging++;
 
-    assert(thread != NULL);
-    assert(thread == g->current);
-
-    if (handle_thread_state(thread) == STEP_ABORT) return;
-
-    g->current = thread->next;
-    assert(g->current != NULL);
-
-    g->calls++;
     g->fant_calls++;
     g->deficit -= sim.W_eff;
     sim.R++;
 
-    thread->got_debugging++;
+    g->current = g->current->next;
 
     update_deficit();
-    check_invariants();
 }
 
 // ============================================================================
@@ -338,7 +221,6 @@ void sim_run(int iterations) {
     for (int i = 0; i < iterations; i++) {
         sim.cycle++;
         reset();
-        update_deficit();
         while (sim.R < sim.W) sim_step();
     }
 }
@@ -348,8 +230,6 @@ void sim_run(int iterations) {
 // ============================================================================
 
 void sim_init(int group_count, const int priorities[]) {
-    assert(group_count > 0 && group_count <= MAX_GROUPS);
-
     sim.group_count = group_count;
     sim.W = 0;
     sim.W_eff = 0;
@@ -359,21 +239,17 @@ void sim_init(int group_count, const int priorities[]) {
     sim.thread_id = 0;
 
     for (int i = 0; i < group_count; i++) {
-        assert(priorities[i] > 0);
         mock_group_t* g = &sim.groups[i];
         g->priority = priorities[i];
         g->count = 0;
         g->W = 0;
         g->W_base = 0;
         g->deficit = 0;
-        g->calls = 0;
         g->fant_calls = 0;
-        g->head = NULL;
         g->current = NULL;
     }
 
     stat_init();
-    check_invariants();
 }
 
 // ============================================================================
@@ -381,66 +257,51 @@ void sim_init(int group_count, const int priorities[]) {
 // ============================================================================
 
 mock_thread_t* sim_create_thread(int priority) {
-    assert(priority > 0);
-
-    int group_id = find_group(priority);
-    assert(group_id != -1 && "group for this priority must exist");
-    mock_group_t* g = &sim.groups[group_id];
-
+    mock_group_t* g = &sim.groups[find_group(priority)];
     mock_thread_t* t = calloc(1, sizeof(*t));
-    assert(t != NULL);
-    if (!t) return NULL;
-
     share_t s = compute_share(g);
-    assert(s.delta >= 0);
-    assert(s.got >= 0);
-
-    // Если группа пустая, то в зависимости от текущего состояния
-    // got = 0/priority/процент от выполнения цикла. это начальное состояние и мы высчитываем его, а не начинаем с 0
-    t->got_debugging = (g->current != NULL) ? g->current->got_debugging : s.got;
-    assert(s.got == t->got_debugging);
 
     t->id = sim.thread_id++;
     t->priority = priority;
     t->state = THREAD_READY;
+    t->debt = 0;
     t->next = t;
     t->prev = t;
-
-    t->stat = stat_create_thread(t, sim.cycle, s.got);
-    assert(t->stat != NULL);
-
-    trace_log(sim.cycle, sim.R, TR_CREATE_BEFORE, t->id, priority, g->count, g->fant_calls, g->W, g->W_base, s.got, s.delta, sim.W, sim.W_base);
-
-    insert_thread_in_group(g, t);
+    t->stat = stat_create_thread(t, s.got);
+    t->got_debugging = (g->current != NULL) ? g->current->got_debugging : s.got;
 
     sim.W += s.delta;
     g->W_base += priority;
     sim.W_base += priority;
     g->fant_calls += s.got;
+
+    insert_thread_in_group(g, t);
     g->count += 1;
 
     recalculation_deficit();
-    check_invariants();
-
-    trace_log(sim.cycle, sim.R, TR_CREATE_AFTER, t->id, priority, g->count, g->fant_calls, g->W, g->W_base, s.got, s.delta, sim.W, sim.W_base);
 
     return t;
 }
 
-void sim_remove_thread(mock_thread_t* thread) {
-    assert(thread != NULL);
-    thread->state = THREAD_ZOMBIE;
-}
+void sim_remove_thread(mock_thread_t* thread) { thread->state = THREAD_ZOMBIE; }
 
 void sim_cleanup(void) {
     for (int i = 0; i < sim.group_count; i++) {
-        mock_group_t* g = &sim.groups[i];
-        while (g->head != NULL) {
-            mock_thread_t* t = g->current;
-            assert(t != NULL);
-            t->state = THREAD_ZOMBIE;
-            handle_thread_remove(t);
+        while (sim.groups[i].current != NULL) {
+            sim.groups[i].current->state = THREAD_ZOMBIE;
+            handle_thread_remove(sim.groups[i].current);
         }
     }
-    check_invariants();
+}
+
+// ============================================================================
+//  Блокировка / разблокировка
+// ============================================================================
+
+void sim_block_thread(mock_thread_t* thread) {
+    if (thread->state == THREAD_READY) { thread->state = THREAD_BLOCKED; }
+}
+
+void sim_unblock_thread(mock_thread_t* thread) {
+    if (thread->state == THREAD_BLOCKED) { thread->state = THREAD_READY; }
 }

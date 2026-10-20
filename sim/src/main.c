@@ -2,7 +2,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "../include/drrd.h"
 #include "../include/fuzz.h"
+#include "../include/print.h"
+#include "../include/stat.h"
 #include "../include/trace.h"
 
 int main(int argc, char** argv) {
