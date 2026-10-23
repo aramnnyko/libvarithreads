@@ -3,10 +3,12 @@
 #include "../include/drrd.h"
 
 // ============================================================================
-//  Глобальное состояние
+//  Глобальное состояние — нужно в обеих сборках (extern в stat.h)
 // ============================================================================
 
 stat_list_t stat;
+
+#ifdef ENABLE_STAT
 
 extern sim_state_t sim;
 
@@ -132,3 +134,5 @@ void stat_thread_repay(mock_thread_t* t) {
 
     s->debt_in_this_cycle = true;
 }
+
+#endif /* ENABLE_STAT */

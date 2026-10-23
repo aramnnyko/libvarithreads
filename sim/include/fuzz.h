@@ -20,7 +20,7 @@
 
 // ---------- Границы ----------
 
-#define FUZZ_MAX_ALIVE 500
+#define FUZZ_MAX_ALIVE 50
 #define FUZZ_MIN_ALIVE 10
 
 #define FUZZ_MIN_RUNNING_TO_BLOCK   10  // блокировать, только если running > этого

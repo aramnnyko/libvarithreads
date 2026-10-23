@@ -12,6 +12,8 @@ static const int g_priorities[FUZZ_NUM_GROUPS] = {1, 2, 3, 4, 5, 9, 100, 110, 12
 // Глобальный sim из drrd.c
 extern sim_state_t sim;
 
+unsigned long long total_sim_steps = 0;
+
 // ============================================================================
 //  PRNG — xorshift64
 // ============================================================================
@@ -136,8 +138,9 @@ static void do_remove(void) {
     if (pick < n_running) t = running[pick];
     else t = blocked[pick - n_running];
 
-    pool_remove(t);        // откуда бы он ни был — по t->pool
-    sim_remove_thread(t);  // state = ZOMBIE, дальше разберётся sim_step
+    pool_remove(t);        // ← сначала: тут meta_of(t) ещё нужен
+    free(t->user_data);    // ← теперь m больше никем не читается
+    sim_remove_thread(t);  // state = ZOMBIE
     ev_removed++;
 }
 
@@ -215,7 +218,7 @@ static void maybe_event(void) {
     // Каскад: primary → pair → create → skip
     if (try_event(ev)) return;
     if (try_event(pair_of(ev))) return;
-    if (try_event(EV_CREATE)) return;
+    // if (try_event(EV_CREATE)) return;
 
     ev_skipped++;
 }
@@ -250,6 +253,7 @@ void fuzz_run(unsigned seed, int cycles) {
 
         while (sim.R < sim.W) {
             sim_step();
+            total_sim_steps++;
             maybe_event();  // после каждого sim_step
         }
 
@@ -258,10 +262,10 @@ void fuzz_run(unsigned seed, int cycles) {
 
     sim_cleanup();
 
-    print_header();
-    print_thread_stats();
-    print_stats_dept();
-    print_group_stats();
+    // print_header();
+    //  print_thread_stats();
+    // print_stats_dept();
+    // print_group_stats();
     print_diff_histogram();
 
     printf("\n=== Fuzz counters ===\n");

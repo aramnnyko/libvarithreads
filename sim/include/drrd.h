@@ -23,7 +23,7 @@ typedef struct mock_thread {
     struct mock_thread* prev;
 
     struct mock_thread_stat* stat;  // Для статистики
-    void* user_data;                // Для генератора
+    void* user_data;                // Для генератора используется, контролируется и освобождается только генератором
     long long got_debugging;        // отладочная
 } mock_thread_t;
 

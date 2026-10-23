@@ -1,6 +1,9 @@
+#define _POSIX_C_SOURCE 199309L
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "../include/drrd.h"
 #include "../include/fuzz.h"
@@ -11,24 +14,21 @@
 int main(int argc, char** argv) {
     unsigned seed = FUZZ_SEED_DEFAULT;
     int cycles = FUZZ_CYCLES_DEFAULT;
-    const char* trace_path = NULL;
-    int trace_prio = -1;
 
     if (argc > 1) seed = (unsigned)strtoul(argv[1], NULL, 10);
     if (argc > 2) cycles = atoi(argv[2]);
 
-    for (int i = 3; i < argc; i++) {
-        if (strcmp(argv[i], "--trace") == 0 && i + 1 < argc) {
-            trace_path = argv[++i];
-        } else if (strcmp(argv[i], "--prio") == 0 && i + 1 < argc) {
-            trace_prio = atoi(argv[++i]);
-        }
-    }
-
-    if (trace_path) trace_open(trace_path, trace_prio);
+    struct timespec t_start, t_end;
+    clock_gettime(CLOCK_MONOTONIC, &t_start);
 
     fuzz_run(seed, cycles);
 
-    if (trace_path) trace_close();
+    clock_gettime(CLOCK_MONOTONIC, &t_end);
+
+    extern unsigned long long total_sim_steps;
+    double elapsed = (t_end.tv_sec - t_start.tv_sec) + (t_end.tv_nsec - t_start.tv_nsec) / 1e9;
+    printf("Elapsed time: %.6f s\n", elapsed);
+    printf("Total steps: %llu\n", total_sim_steps);
+
     return 0;
 }

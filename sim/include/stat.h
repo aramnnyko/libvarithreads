@@ -38,6 +38,8 @@ typedef struct {
 
 extern stat_list_t stat;
 
+#ifdef ENABLE_STAT
+
 void stat_init(void);
 void stat_reset(void);
 void stat_cleanup(void);
@@ -48,4 +50,21 @@ void stat_thread_ready(mock_thread_t* t);
 void stat_thread_repay(mock_thread_t* t);
 void stat_thread_remove(mock_thread_t* t, long long delta);
 
-#endif
+#else /* !ENABLE_STAT */
+
+static inline void stat_init(void) {}
+static inline void stat_reset(void) {}
+static inline void stat_cleanup(void) {}
+
+static inline mock_thread_stat_t* stat_create_thread(mock_thread_t* t, long long got) {
+    (void)t, (void)got;
+    return NULL;
+}
+static inline void stat_thread_blocked(mock_thread_t* t) { (void)t; }
+static inline void stat_thread_ready(mock_thread_t* t) { (void)t; }
+static inline void stat_thread_repay(mock_thread_t* t) { (void)t; }
+static inline void stat_thread_remove(mock_thread_t* t, long long delta) { (void)t, (void)delta; }
+
+#endif /* ENABLE_STAT */
+
+#endif /* STAT_H */
