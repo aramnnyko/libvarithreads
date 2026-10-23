@@ -53,3 +53,10 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+# build artifacts
+/sim/sim
+*.o
+*.a
+*.so
+build/
