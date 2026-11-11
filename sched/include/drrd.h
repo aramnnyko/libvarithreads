@@ -11,7 +11,6 @@ typedef enum { THREAD_READY, THREAD_BLOCKED, THREAD_ZOMBIE } thread_state_t;
 struct fiber_thread;  // ← forward
 
 typedef struct sched_thread {
-    int id;
     int priority;
     long long debt;
     thread_state_t state;
@@ -39,7 +38,6 @@ typedef struct {
     long long W_base;  // постоянный общий вес (без временных добавок Δ)
     long long R;       // Число квантов в текущем цикле
 
-    int thread_id;       //  для присвоения ID новому потоку
     int thread_live;     //  для окончания цикла
     int thread_blocked;  //  для поимки дедлока
 
@@ -58,5 +56,7 @@ void sched_unblock_thread(sched_thread_t* thread);
 void sched_remove_thread(sched_thread_t* thread);
 
 void sched_run(void);
+
+void sched_cleanup(void);
 
 #endif

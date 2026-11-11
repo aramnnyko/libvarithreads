@@ -1,5 +1,9 @@
 #include "../include/drrd.h"
 
+#include <stdlib.h>
+
+#include "../../fiber/include/fiber.h"
+
 sched_state_t sched;
 
 // ============================================================================
@@ -80,7 +84,7 @@ static int find_group(int priority) {
     return -1;
 }
 
-void update_deficit(void) {
+static void update_deficit(void) {
     for (int i = 0; i < sched.group_count; i++)
         if (sched.groups[i].current != NULL) sched.groups[i].deficit += sched.groups[i].W;
 }
@@ -97,7 +101,7 @@ static void recalculation_deficit(void) {
     }
 }
 
-void reset(void) {
+static void reset(void) {
     sched.W = sched.W_eff = sched.W_base;
     sched.R = 0;
 
@@ -126,8 +130,6 @@ static int sched_select_group(void) {
     return selected;
 }
 
-sched_thread_t* sched_select_thread(int group_id) { return sched.groups[group_id].current; }
-
 // ============================================================================
 //  Обработчики состояний
 // ============================================================================
@@ -136,6 +138,8 @@ static void handle_thread_blocked(sched_thread_t* t) { t->debt++; }
 
 static void handle_thread_ready(sched_thread_t* t) {
     fiber_run_thread(t);  // «эй, я выбрал вот этот — делай что хочешь»
+
+    if (t->state != THREAD_READY) return;
 
     if (t->debt > 0) {
         fiber_run_thread(t);  // «эй, я выбрал вот этот — делай что хочешь»
@@ -153,8 +157,6 @@ static void handle_thread_remove(sched_thread_t* t) {
     g->fant_calls -= s.got;
 
     g->count--;
-
-    if (t->state == THREAD_BLOCKED) sched.thread_blocked--;
     sched.thread_live--;
 
     remove_thread_from_group(g, t);
@@ -186,7 +188,9 @@ static step_result_t handle_thread_state(sched_thread_t* t) {
 void sched_step(void) {
     if (sched.W == 0) return;
 
-    sched_group_t* g = &sched.groups[sched_select_group()];
+    int gi = sched_select_group();
+    if (gi < 0) return;
+    sched_group_t* g = &sched.groups[gi];
 
     if (handle_thread_state(g->current) == STEP_ABORT) return;
 
@@ -225,7 +229,6 @@ void sched_init(int group_count, const int priorities[]) {
     sched.W_eff = 0;
     sched.W_base = 0;
     sched.R = 0;
-    sched.thread_id = 0;
     sched.thread_live = 0;
     sched.thread_blocked = 0;
 
@@ -246,13 +249,18 @@ void sched_init(int group_count, const int priorities[]) {
 // ============================================================================
 
 sched_thread_t* sched_create_thread(int priority) {
-    sched_group_t* g = &sched.groups[find_group(priority)];
+    int gi = find_group(priority);
+    if (gi < 0) {
+        fprintf(stderr, "sched_create_thread: no group for priority %d\n", priority);
+        return NULL;
+    }
+    sched_group_t* g = &sched.groups[gi];
+
     sched_thread_t* t = calloc(1, sizeof(*t));
     fiber_create_thread(t);  // «эй, я создался — положи в user_data что надо»
 
     share_t s = compute_share(g);
 
-    t->id = sched.thread_id++;
     t->priority = priority;
     t->state = THREAD_READY;
     t->debt = 0;
@@ -273,12 +281,15 @@ sched_thread_t* sched_create_thread(int priority) {
     return t;
 }
 
-void sched_remove_thread(sched_thread_t* thread) { thread->state = THREAD_ZOMBIE; }
+void sched_remove_thread(sched_thread_t* thread) {
+    sched_unblock_thread(thread);
+    thread->state = THREAD_ZOMBIE;
+}
 
 void sched_cleanup(void) {
     for (int i = 0; i < sched.group_count; i++) {
         while (sched.groups[i].current != NULL) {
-            sched.groups[i].current->state = THREAD_ZOMBIE;
+            sched_remove_thread(sched.groups[i].current);
             handle_thread_remove(sched.groups[i].current);
         }
     }
