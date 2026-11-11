@@ -214,7 +214,6 @@ void sched_run(void) {
     }
 
     if (sched.thread_live > 0) {  // Дедлок
-        sched_cleanup();
         fprintf(stderr, "sched_run: deadlock (%d live, %d blocked)\n", sched.thread_live, sched.thread_blocked);
     }
 }
@@ -249,6 +248,11 @@ void sched_init(int group_count, const int priorities[]) {
 // ============================================================================
 
 sched_thread_t* sched_create_thread(int priority) {
+    if (priority <= 0) {
+        fprintf(stderr, "sched_create_thread: priority must be > 0, got %d\n", priority);
+        return NULL;
+    }
+
     int gi = find_group(priority);
     if (gi < 0) {
         fprintf(stderr, "sched_create_thread: no group for priority %d\n", priority);
@@ -257,7 +261,12 @@ sched_thread_t* sched_create_thread(int priority) {
     sched_group_t* g = &sched.groups[gi];
 
     sched_thread_t* t = calloc(1, sizeof(*t));
+    if (!t) return NULL;
     fiber_create_thread(t);  // «эй, я создался — положи в user_data что надо»
+    if (!t->fiber) {
+        free(t);
+        return NULL;
+    }
 
     share_t s = compute_share(g);
 
