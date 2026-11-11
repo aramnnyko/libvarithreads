@@ -3,8 +3,11 @@ CFLAGS  = -Wall -Wextra -g -std=gnu11 -O2 -flto
 LDFLAGS = -flto
 LDLIBS  = -lm
 
-# планировщик: drrd (по умолчанию), rr, wrr
+# планировщик: drrd (по умолчанию), rr, wrr, stride
 SCHED   ?= drrd
+
+SCHED_UPPER := $(shell echo $(SCHED) | tr a-z A-Z)
+CFLAGS      += -DVT_SCHED_$(SCHED_UPPER)
 
 COMMON  = src/varithreads.o \
           sched/src/$(SCHED).o \
@@ -23,13 +26,15 @@ DBINS   = $(addprefix demo_,$(DEMOS))
 
 ALL_BINS = test bench $(TBINS) $(SBINS) $(DBINS)
 
+# ── таргеты ──
+
 all: test bench
 
 test: main.o $(COMMON)
-	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS) $(LDFLAGS)
 
 bench: tests/bench_switch.o $(COMMON)
-	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS) $(LDFLAGS)
 
 tests: $(TBINS)
 tests-stress: $(SBINS)
@@ -37,10 +42,10 @@ tests-all: tests tests-stress
 demos: $(DBINS)
 
 test_%: tests/test_%.o $(COMMON)
-	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS) $(LDFLAGS)
 
 demo_%: examples/demo_%.o $(COMMON)
-	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS) $(LDFLAGS)
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c -o $@ $<
@@ -84,8 +89,23 @@ run: tests tests-stress
 		./$$t || exit 1; \
 	done
 
+# ── сборка под все планировщики в отдельные каталоги ──
+
+SCHEDS   = drrd rr wrr stride
+BINDIR   = bin
+
+all-scheds:
+	@for s in $(SCHEDS); do \
+		echo "════════ SCHED=$$s ════════"; \
+		$(MAKE) clean SCHED=$$s > /dev/null; \
+		$(MAKE) SCHED=$$s tests-all bench || exit 1; \
+		mkdir -p $(BINDIR)/$$s; \
+		mv $(TBINS) $(SBINS) bench $(BINDIR)/$$s/; \
+	done
+
 clean:
 	rm -f $(COMMON) main.o tests/*.o examples/*.o $(ALL_BINS)
-	rm -rf build
+	rm -rf build $(BINDIR)
+	rm -rf */*/*.o
 
-.PHONY: all test bench tests tests-stress tests-all demos san valgrind run clean
+.PHONY: all test bench tests tests-stress tests-all demos san valgrind run all-scheds clean

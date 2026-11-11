@@ -1,7 +1,5 @@
 #include "../include/fiber.h"
 
-#include "../../sched/include/drrd.h"
-
 #define FIBER_STACK_SIZE (256 * 1024)
 
 static ucontext_t sched_ctx;
