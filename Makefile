@@ -3,16 +3,17 @@ CFLAGS  = -Wall -Wextra -g -std=gnu11 -O2 -flto
 LDFLAGS = -flto
 LDLIBS  = -lm
 
-# планировщик: drrd (по умолчанию), rr, wrr, stride
+# планировщик: drrd (по умолчанию), rr, wrr, stride, cfs
 SCHED   ?= drrd
 
 SCHED_UPPER := $(shell echo $(SCHED) | tr a-z A-Z)
 CFLAGS      += -DVT_SCHED_$(SCHED_UPPER)
 
 COMMON  = src/varithreads.o \
-          sched/src/$(SCHED).o \
-          fiber/src/fiber.o \
-          mode/src/cooperative.o
+          src/sched/src/$(SCHED).o \
+          src/fiber/src/fiber.o \
+          src/mode/src/cooperative.o \
+          src/sched/common/external/rb_tree.o
 
 TESTS   = proportional latency starvation dynamic block
 TBINS   = $(addprefix test_,$(TESTS))
@@ -55,9 +56,10 @@ demo_%: examples/demo_%.o $(COMMON)
 SAN_FLAGS  = -fsanitize=address,undefined -fno-omit-frame-pointer -g
 SAN_DIR    = build/san
 SAN_COMMON = $(SAN_DIR)/src/varithreads.o \
-             $(SAN_DIR)/sched/src/$(SCHED).o \
-             $(SAN_DIR)/fiber/src/fiber.o \
-             $(SAN_DIR)/mode/src/cooperative.o
+             $(SAN_DIR)/src/sched/src/$(SCHED).o \
+             $(SAN_DIR)/src/fiber/src/fiber.o \
+             $(SAN_DIR)/src/mode/src/cooperative.o \
+             $(SAN_DIR)/src/sched/common/external/rb_tree.o
 
 san: $(addprefix $(SAN_DIR)/,$(TBINS) $(SBINS))
 
@@ -65,10 +67,10 @@ $(SAN_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $(SAN_FLAGS) -c -o $@ $<
 
-$(SAN_DIR)/test_%: tests/test_%.o $(SAN_COMMON)
+$(SAN_DIR)/test_%: $(SAN_DIR)/tests/test_%.o $(SAN_COMMON)
 	$(CC) $(CFLAGS) $(SAN_FLAGS) -o $@ $^ $(LDLIBS)
 
-$(SAN_DIR)/test: main.o $(SAN_COMMON)
+$(SAN_DIR)/test: $(SAN_DIR)/main.o $(SAN_COMMON)
 	$(CC) $(CFLAGS) $(SAN_FLAGS) -o $@ $^ $(LDLIBS)
 
 # ── valgrind ──
@@ -91,7 +93,7 @@ run: tests tests-stress
 
 # ── сборка под все планировщики в отдельные каталоги ──
 
-SCHEDS   = drrd rr wrr stride
+SCHEDS   = drrd rr wrr stride cfs
 BINDIR   = bin
 
 all-scheds:
@@ -104,8 +106,8 @@ all-scheds:
 	done
 
 clean:
-	rm -f $(COMMON) main.o tests/*.o examples/*.o $(ALL_BINS)
+	rm -f $(ALL_BINS)
 	rm -rf build $(BINDIR)
-	rm -rf */*/*.o
+	find . -name '*.o' -delete
 
 .PHONY: all test bench tests tests-stress tests-all demos san valgrind run all-scheds clean

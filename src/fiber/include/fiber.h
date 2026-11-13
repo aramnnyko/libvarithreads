@@ -5,20 +5,8 @@
 #include <stdlib.h>
 #include <ucontext.h>
 
-#include "../../varithreads.h"  // thread_t, thread_fn_t, VT_MAX_THREADS
-
-/* алгоритмозависимо */
-#if defined(VT_SCHED_DRRD)
-#include "../../sched/include/drrd.h"
-#elif defined(VT_SCHED_RR)
-#include "../../sched/include/rr.h"
-#elif defined(VT_SCHED_WRR)
-#include "../../sched/include/wrr.h"
-#elif defined(VT_SCHED_STRIDE)
-#include "../../sched/include/stride.h"
-#else
-#error "Define VT_SCHED_DRRD, VT_SCHED_RR, VT_SCHED_WRR or VT_SCHED_STRIDE"
-#endif
+#include "../../../varithreads.h"
+#include "../../sched_select.h"
 
 struct sched_thread;
 
