@@ -9,7 +9,6 @@
 
 /* алгоритмозависимо */
 #if defined(VT_SCHED_DRRD)
-
 #include "sched/include/drrd.h"
 #define VT_INIT_ARGS   int gc, const int p[]
 #define VT_INIT_CALL   sched_init(gc, p)
@@ -43,6 +42,13 @@
 #define VT_INIT_CALL   sched_init()
 #define VT_CREATE_ARGS thread_fn_t fn, void *arg, int weight
 #define VT_CREATE_CALL sched_create_thread(weight)
+
+#elif defined(VT_SCHED_LOTTERY)
+#include "sched/include/lottery.h"
+#define VT_INIT_ARGS   void
+#define VT_INIT_CALL   sched_init()
+#define VT_CREATE_ARGS thread_fn_t fn, void *arg, int ticket
+#define VT_CREATE_CALL sched_create_thread(ticket)
 
 #elif defined(__INTELLISENSE__) || defined(__clangd__)
 /* Browse-only: no scheduler, opaque type, stub macros.

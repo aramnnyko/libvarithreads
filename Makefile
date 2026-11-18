@@ -3,8 +3,8 @@ CFLAGS  = -Wall -Wextra -g -std=gnu11 -O2 -flto
 LDFLAGS = -flto
 LDLIBS  = -lm
 
-# планировщик: drrd (по умолчанию), rr, wrr, stride, cfs
-SCHED   ?= drrd
+# планировщик: drrd, rr, wrr, stride, cfs, lottery
+SCHED   ?= lottery
 
 SCHED_UPPER := $(shell echo $(SCHED) | tr a-z A-Z)
 CFLAGS      += -DVT_SCHED_$(SCHED_UPPER)
@@ -13,7 +13,8 @@ COMMON  = src/varithreads.o \
           src/sched/src/$(SCHED).o \
           src/fiber/src/fiber.o \
           src/mode/src/cooperative.o \
-          src/sched/common/external/rb_tree.o
+          src/sched/common/external/gfxstrand_rb_tree/rb_tree.o \
+          src/sched/common/external/byronlai_bit/bit.o
 
 TESTS   = proportional latency starvation dynamic block
 TBINS   = $(addprefix test_,$(TESTS))
