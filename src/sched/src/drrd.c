@@ -7,7 +7,7 @@
 sched_state_t sched;
 
 // ============================================================================
-//  share_t — сколько потоку осталось получить (delta) и уже зачтено (got)
+//  share_t — сколько потоку осталось получить (delta) и уже зачтено (got) (только для current)
 // ============================================================================
 
 typedef struct {
@@ -187,6 +187,7 @@ static step_result_t handle_thread_state(sched_thread_t* t) {
 
 void sched_step(void) {
     if (sched.W == 0) return;
+    if (sched.thread_live <= 0) return;
 
     int gi = sched_select_group();
     if (gi < 0) return;
