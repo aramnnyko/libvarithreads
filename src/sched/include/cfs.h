@@ -3,7 +3,7 @@
 
 #include <stdio.h>
 
-#include "../common/external/rb_tree.h"
+#include "../common/external/gfxstrand_rb_tree/rb_tree.h"
 
 typedef enum { THREAD_READY, THREAD_BLOCKED, THREAD_ZOMBIE } thread_state_t;
 

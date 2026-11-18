@@ -69,35 +69,20 @@ static void handle_thread_remove(sched_thread_t* t) {
 
 typedef enum { STEP_CONTINUE, STEP_ABORT } step_result_t;
 
-// static step_result_t handle_thread_state(sched_thread_t* t) {
-//     switch (t->state) {
-//         case THREAD_BLOCKED: handle_thread_blocked(t); return STEP_ABORT;
-//         case THREAD_READY  : handle_thread_ready(t); return STEP_CONTINUE;
-//         case THREAD_ZOMBIE : handle_thread_remove(t); return STEP_ABORT;
-//         default            : return STEP_CONTINUE;
-//     }
-// }
+static step_result_t handle_thread_post_run(sched_thread_t* t) {
+    switch (t->state) {
+        case THREAD_BLOCKED: handle_thread_blocked(t); return STEP_ABORT;
+        case THREAD_ZOMBIE : handle_thread_remove(t); return STEP_ABORT;
+        default            : return STEP_CONTINUE;
+    }
+}
 
 static step_result_t handle_thread_state(sched_thread_t* t) {
     switch (t->state) {
         case THREAD_BLOCKED: handle_thread_blocked(t); return STEP_ABORT;
-
-        case THREAD_READY:
-
-            handle_thread_ready(t);  // запускаем поток
-
-            // Если после выполнения он ВСЁ ЕЩЁ READY — значит был yield.
-            if (t->state == THREAD_READY) { return STEP_CONTINUE; }
-
-            // Если он завершился — удаляем.
-            if (t->state == THREAD_ZOMBIE) { handle_thread_remove(t); }
-
-            // Если он заблокировался — просто выходим (он уже вынут из дерева).
-            return STEP_ABORT;
-
-        case THREAD_ZOMBIE: handle_thread_remove(t); return STEP_ABORT;
-
-        default: return STEP_ABORT;
+        case THREAD_READY  : handle_thread_ready(t); return t->state == THREAD_READY ? STEP_CONTINUE : handle_thread_post_run(t);
+        case THREAD_ZOMBIE : handle_thread_remove(t); return STEP_ABORT;
+        default            : return STEP_CONTINUE;
     }
 }
 
